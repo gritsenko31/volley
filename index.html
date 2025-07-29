@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Blobby Volley JS - Jump Down & Higher Net</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #eef;
+      margin: 0;
+      padding: 0;
+    }
+    canvas {
+      display: block;
+      margin: 20px auto;
+      border: 2px solid #333;
+      background: #cceeff;
+    }
+    #menu, #controls {
+      margin-top: 20px;
+    }
+    button {
+      padding: 10px 18px;
+      font-size: 16px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    #winnerMessage {
+      font-size: 24px;
+      font-weight: bold;
+      color: green;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Blobby Volley JS</h1>
+
+  <div id="menu">
+    <p>Select Game Mode:</p>
+    <button onclick="startGame('bot', 'easy')">Player vs Easy Bot</button>
+    <button onclick="startGame('bot', 'medium')">Player vs Medium Bot</button>
+    <button onclick="startGame('bot', 'hard')">Player vs Hard Bot</button>
+    <button onclick="startGame('pvp')">Player vs Player</button>
+  </div>
+
+  <canvas id="game" width="800" height="400" style="display:none;"></canvas>
+
+  <div id="controls" style="display:none;">
+    <button onclick="togglePause()">Pause</button>
+    <button onclick="restartGame()">Restart</button>
+    <button onclick="returnToMenu()">Main Menu</button>
+  </div>
+
+  <div id="winnerMessage"></div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const winnerMessage = document.getElementById('winnerMessage');
+
+    const gravity = 0.12;
+    const floorY = 350;
+    const topLimit = 50;
+    const netX = 400;
+    const keys = {};
+    let gamePaused = false;
+    let mode = "bot";
+    let botDifficulty = "medium";
+    let animationId;
+
+    const winningScore = 15;
+
+    const ball = {
+      x: 400, y: 100,
+      vx: 2, vy: 0,
+      radius: 20
+    };
+
+    let players = [];
+
+    function resetBall() {
+      ball.x = 400;
+      ball.y = 100;
+      ball.vx = (Math.random() > 0.5 ? 1 : -1) * 2;
+      ball.vy = 0;
+    }
+
+    function drawPlayer(p) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 30, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+    }
+
+    function drawBall() {
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fillStyle = "white";
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function updateBot(p, difficulty) {
+      const dx = ball.x - p.x;
+      let speed = 0.8;
+      let jumpChance = 0.01;
+
+      if (difficulty === "medium") {
+        speed = 1.3;
+        jumpChance = 0.04;
+      } else if (difficulty === "hard") {
+        speed = 1.9;
+        jumpChance = 0.12;
+      }
+
+      if (ball.x > netX) {
+        p.vx = Math.abs(dx) > 10 ? (dx > 0 ? speed : -speed) : 0;
+
+        const distY = ball.y - p.y;
+        if (Math.abs(dx) < 50 && distY < -20 && p.y >= floorY && Math.random() < jumpChance) {
+          p.vy = -8;
+        }
+      } else {
+        p.vx = 0;
+      }
+    }
+
+    function checkWinner() {
+      for (const p of players) {
+        if (p.score >= winningScore) {
+          gamePaused = true;
+          winnerMessage.textContent = `${p.color.charAt(0).toUpperCase() + p.color.slice(1)} player wins! 🎉`;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function update() {
+      if (gamePaused) return;
+
+      for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+
+        if (!p.isBot) {
+          if (p.controlLeft && keys[p.controlLeft]) p.vx = -2;
+          else if (p.controlRight && keys[p.controlRight]) p.vx = 2;
+          else p.vx = 0;
+
+          if (p.controlJump && keys[p.controlJump] && p.y >= floorY) {
+            p.vy = -8;
+          }
+          // Прыжок вниз по стрелке вниз (ускорение падения)
+          if (p.controlDown && keys[p.controlDown] && p.y < floorY) {
+            p.vy += 0.5;
+          }
+        } else {
+          updateBot(p, botDifficulty);
+        }
+
+        p.vy += gravity;
+        p.y += p.vy;
+        p.x += p.vx;
+
+        // Ограничение для синего игрока (players[0]) — не заходить на красную сторону
+        if (i === 0 && p.x > netX - 30) {
+          p.x = netX - 30;
+        }
+
+        if (p.y > floorY) {
+          p.y = floorY;
+          p.vy = 0;
+        }
+        if (p.x < 30) p.x = 30;
+        if (p.x > 770) p.x = 770;
+        if (p.y < topLimit) {
+          p.y = topLimit;
+          if (p.vy < 0) p.vy = 0;
+        }
+      }
+
+      ball.vy += gravity;
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
+        ball.vx *= -1;
+        ball.x = Math.max(ball.radius, Math.min(ball.x, canvas.width - ball.radius));
+      }
+
+      if (ball.y + ball.radius >= floorY) {
+        if (ball.x < netX) players[1].score++;
+        else players[0].score++;
+
+        if (!checkWinner()) {
+          resetBall();
+        }
+      }
+
+      if (ball.y - ball.radius < 0) {
+        ball.y = ball.radius;
+        if (ball.vy < 0) ball.vy *= -1;
+      }
+
+      if (
+        ball.x > netX - 5 - ball.radius &&
+        ball.x < netX + 5 + ball.radius &&
+        ball.y + ball.radius > floorY - 100
+      ) {
+        ball.vx *= -1;
+        ball.x = ball.x < netX ? netX - 6 - ball.radius : netX + 6 + ball.radius;
+      }
+
+      for (const p of players) {
+        const dx = ball.x - p.x;
+        const dy = ball.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 30 + ball.radius) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const relVelX = ball.vx - p.vx;
+          const relVelY = ball.vy - p.vy;
+          const dot = relVelX * nx + relVelY * ny;
+
+          ball.vx -= dot * nx * 2;
+          ball.vy -= dot * ny * 2;
+
+          const overlap = 30 + ball.radius - dist;
+          ball.x += nx * overlap;
+          ball.y += ny * overlap;
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#228822";
+      ctx.fillRect(0, floorY + 30, canvas.width, 50);
+
+      // Сетка поднята выше (100px)
+      ctx.fillStyle = "#444";
+      ctx.fillRect(netX - 5, floorY - 100, 10, 100);
+
+      for (const p of players) drawPlayer(p);
+      drawBall();
+
+      ctx.fillStyle = "#000";
+      ctx.font = "20px sans-serif";
+      ctx.fillText(`Score: ${players[0].score} : ${players[1].score}`, 340, 30);
+    }
+
+    function gameLoop() {
+      if (!gamePaused) {
+        update();
+        draw();
+      }
+      animationId = requestAnimationFrame(gameLoop);
+    }
+
+    function startGame(selectedMode, difficulty = "medium") {
+      mode = selectedMode;
+      botDifficulty = difficulty;
+      document.getElementById('menu').style.display = 'none';
+      document.getElementById('controls').style.display = 'block';
+      canvas.style.display = 'block';
+      winnerMessage.textContent = "";
+
+      if (mode === "bot") {
+        players = [
+          { x: 150, y: floorY, vx: 0, vy: 0, color: "blue", score: 0, isBot: false,
+            controlLeft: "ArrowLeft", controlRight: "ArrowRight", controlJump: "ArrowUp", controlDown: "ArrowDown" },
+          { x: 650, y: floorY, vx: 0, vy: 0, color: "red", score: 0, isBot: true }
+        ];
+      } else {
+        players = [
+          { x: 150, y: floorY, vx: 0, vy: 0, color: "blue", score: 0, isBot: false,
+            controlLeft: "ArrowLeft", controlRight: "ArrowRight", controlJump: "ArrowUp", controlDown: "ArrowDown" },
+          { x: 650, y: floorY, vx: 0, vy: 0, color: "red", score: 0, isBot: false,
+            controlLeft: "a", controlRight: "d", controlJump: "w" }
+        ];
+      }
+
+      resetBall();
+      gamePaused = false;
+      cancelAnimationFrame(animationId);
+      gameLoop();
+    }
+
+    function togglePause() {
+      gamePaused = !gamePaused;
+    }
+
+    function restartGame() {
+      players[0].score = 0;
+      players[1].score = 0;
+      resetBall();
+      winnerMessage.textContent = "";
+      gamePaused = false;
+      cancelAnimationFrame(animationId);
+      gameLoop();
+    }
+
+    function returnToMenu() {
+      cancelAnimationFrame(animationId);
+      canvas.style.display = 'none';
+      document.getElementById('menu').style.display = 'block';
+      document.getElementById('controls').style.display = 'none';
+      winnerMessage.textContent = "";
+      for (let key in keys) keys[key] = false;
+    }
+
+    document.addEventListener("keydown", e => keys[e.key] = true);
+    document.addEventListener("keyup", e => keys[e.key] = false);
+  </script>
+</body>
+</html>
